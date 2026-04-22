@@ -267,10 +267,15 @@ class RetrievalEngine:
 
         reranked = chunks[:top_k * 2]
 
+        def get_position(x):
+            if isinstance(x.metadata, dict):
+                return x.metadata.get('position', 1)
+            return 1
+
         reranked.sort(key=lambda x: (
             x.score * 0.7,
             len(x.content) / 1000 * 0.1,
-            x.metadata.get('position', 1) * 0.2
+            get_position(x) * 0.2
         ), reverse=True)
 
         return reranked[:top_k]

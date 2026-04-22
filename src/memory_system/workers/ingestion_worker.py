@@ -5,6 +5,7 @@ Processes source documents asynchronously using NATS or background processing
 
 import asyncio
 import uuid
+import json
 import logging
 from typing import Optional, List, Callable
 from dataclasses import dataclass
@@ -146,10 +147,10 @@ class IngestionWorker:
             await conn.execute("""
                 INSERT INTO source_sections
                 (section_id, source_id, parent_section_id, level, title, path, metadata)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
             """, section_id, source_id, parent_id, level,
                 section.get('title'), section.get('path', ''),
-                section.get('metadata', {}))
+                json.dumps(section.get('metadata', {})))
 
     async def _store_chunks(self, conn, source_id: str, text: str, structure: List[dict]):
         """Store document chunks."""
@@ -185,9 +186,9 @@ class IngestionWorker:
             await conn.execute("""
                 INSERT INTO source_chunks
                 (chunk_id, source_id, section_id, chunk_index, content, token_count, metadata)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
             """, chunk_id, source_id, section_id, len(chunks),
-                chunk, len(chunk) // 4, {})
+                chunk, len(chunk) // 4, json.dumps({}))
 
             chunks.append({'chunk_id': chunk_id, 'content': chunk})
             start = end
