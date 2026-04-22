@@ -255,10 +255,10 @@ class SourceWorkspaceService:
                 include_citations=include_citations
             )
 
-            response = await self.naga_llm.generate(hybrid_prompt.full_prompt)
+            response_str, _ = await self.naga_llm.generate(hybrid_prompt.full_prompt)
 
             return WorkspaceQueryResult(
-                response=response,
+                response=response_str,
                 documents=docs_data,
                 chunks=chunks_data,
                 citations=citations,
@@ -279,10 +279,10 @@ class SourceWorkspaceService:
                 include_citations=include_citations
             )
 
-            response = await self.naga_llm.generate(source_prompt.full_prompt)
+            response_str, _ = await self.naga_llm.generate(source_prompt.full_prompt)
 
             return WorkspaceQueryResult(
-                response=response,
+                response=response_str,
                 documents=docs_data,
                 chunks=chunks_data,
                 citations=citations,
