@@ -151,6 +151,7 @@ class RetrievalEngine:
             return []
 
         query_embedding = await self._get_query_embedding(query)
+        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
@@ -161,7 +162,7 @@ class RetrievalEngine:
                     sec.path,
                     sec.summary,
                     sec.metadata,
-                    s.embedding <=> $2 as score,
+                    s.embedding <=> $2::vector as score,
                     COUNT(c.chunk_id) as chunk_count
                 FROM source_sections sec
                 LEFT JOIN source_summaries s ON s.section_id = sec.section_id
@@ -172,7 +173,7 @@ class RetrievalEngine:
                          sec.summary, sec.metadata, s.embedding
                 ORDER BY score ASC
                 LIMIT $3
-            """, source_ids, query_embedding, top_k)
+            """, source_ids, embedding_str, top_k)
 
             return [
                 RetrievedSection(
@@ -200,6 +201,7 @@ class RetrievalEngine:
         Retrieve concrete chunks with semantic similarity.
         """
         query_embedding = await self._get_query_embedding(query)
+        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
         async with self.pool.acquire() as conn:
             if section_ids:
@@ -210,14 +212,14 @@ class RetrievalEngine:
                         c.section_id,
                         c.content,
                         c.metadata,
-                        c.embedding <=> $3 as score,
+                        c.embedding <=> $3::vector as score,
                         c.page_start as page
                     FROM source_chunks c
                     WHERE c.source_id = ANY($1::uuid[])
                         AND ($2::uuid[] IS NULL OR c.section_id = ANY($2::uuid[]))
                     ORDER BY score ASC
                     LIMIT $4
-                """, source_ids, section_ids, query_embedding, top_k)
+                """, source_ids, section_ids, embedding_str, top_k)
             else:
                 rows = await conn.fetch("""
                     SELECT
@@ -226,13 +228,13 @@ class RetrievalEngine:
                         c.section_id,
                         c.content,
                         c.metadata,
-                        c.embedding <=> $2 as score,
+                        c.embedding <=> $2::vector as score,
                         c.page_start as page
                     FROM source_chunks c
                     WHERE c.source_id = ANY($1::uuid[])
                     ORDER BY score ASC
                     LIMIT $3
-                """, source_ids, query_embedding, top_k)
+                """, source_ids, embedding_str, top_k)
 
             return [
                 RetrievedChunk(
