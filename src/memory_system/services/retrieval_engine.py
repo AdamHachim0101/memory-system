@@ -91,6 +91,7 @@ class RetrievalEngine:
         Select documents relevant to the query using hybrid search.
         """
         query_embedding = await self._get_query_embedding(query)
+        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
 
         async with self.pool.acquire() as conn:
             rows = await conn.fetch("""
@@ -101,7 +102,7 @@ class RetrievalEngine:
                     d.source_type,
                     d.metadata,
                     s.content as summary,
-                    s.embedding <=> $3 as score,
+                    s.embedding <=> $3::vector as score,
                     COUNT(DISTINCT sec.section_id) as section_count,
                     COUNT(DISTINCT c.chunk_id) as chunk_count
                 FROM source_documents d
@@ -118,7 +119,7 @@ class RetrievalEngine:
                 LIMIT $4
             """, workspace_id,
                 filters.get('source_ids') if filters else None,
-                query_embedding,
+                embedding_str,
                 top_k)
 
             return [
