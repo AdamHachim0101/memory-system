@@ -20,6 +20,7 @@ from src.memory_system.services.citation_engine import CitationEngine, GroundedE
 from src.memory_system.services.prompt_composer import (
     PromptComposer, AgentMemoryContext, SourceEvidenceContext, HybridPrompt
 )
+from src.memory_system.services.minio_notification import MinIONotificationService
 from src.memory_system.workers.ingestion_worker import IngestionWorker, IngestionTask, WorkerType
 from src.memory_system.parsers import ParserFactory
 
@@ -59,6 +60,7 @@ class SourceWorkspaceService:
 
         self.source_registry = SourceRegistry(postgres_pool)
         self.minio_service = MinIOService()
+        self.notification_service = MinIONotificationService(redis_client)
         self.retrieval_engine = RetrievalEngine(postgres_pool, redis_client, naga_llm)
         self.citation_engine = CitationEngine()
         self.prompt_composer = PromptComposer()
@@ -131,6 +133,18 @@ class SourceWorkspaceService:
         )
 
         asyncio.create_task(self._process_source_async(source.source_id))
+
+        # Notify via NATS/Redis pub/sub
+        try:
+            await self.notification_service.notify_upload(
+                source_id=source.source_id,
+                workspace_id=workspace_id,
+                bucket=self.minio_service.bucket,
+                object_key=f"sources/{source.source_id}/{title}",
+                metadata={"source_type": source_type, "size": len(content)}
+            )
+        except Exception as e:
+            print(f"Warning: Failed to publish upload notification: {e}")
 
         return source, True
 
