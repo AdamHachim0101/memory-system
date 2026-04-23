@@ -10,7 +10,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from src.memory_system.config import settings
+from memory_system.config import settings
 
 
 class MinIOService:
@@ -93,6 +93,17 @@ class MinIOService:
             error_code = e.response.get('Error', {}).get('Code', '')
             if error_code == '404':
                 raise FileNotFoundError(f"Source not found: {source_id}/{filename}")
+            raise Exception(f"Failed to download from MinIO: {str(e)}")
+
+    async def download_source_by_uri(self, canonical_uri: str) -> bytes:
+        """Download source file from MinIO using canonical_uri."""
+        # canonical_uri format: minio://bucket/object_key
+        try:
+            _, object_key = canonical_uri.split('://', 1)
+            bucket, key = object_key.split('/', 1)
+            response = self.client.get_object(Bucket=bucket, Key=key)
+            return response['Body'].read()
+        except Exception as e:
             raise Exception(f"Failed to download from MinIO: {str(e)}")
 
     async def delete_source(self, source_id: str, filename: str) -> bool:

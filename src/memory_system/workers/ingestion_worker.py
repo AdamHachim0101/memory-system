@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 
-from src.memory_system.services.source_registry import SourceRegistry, SourceStatus
-from src.memory_system.services.minio_service import MinIOService
-from src.memory_system.parsers import ParserFactory
-from src.memory_system.config import settings
+from memory_system.services.source_registry import SourceRegistry, SourceStatus
+from memory_system.services.minio_service import MinIOService
+from memory_system.parsers import ParserFactory
+from memory_system.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -104,10 +104,10 @@ class IngestionWorker:
 
             logger.info(f"Processing source: {source.title}")
 
-            filename = source.title
-            content = await self.minio_service.download_source(source_id, filename)
+            # Download using canonical_uri from the source record
+            content = await self.minio_service.download_source_by_uri(source.canonical_uri)
 
-            parsed = await ParserFactory.parse(content, filename, source.mime_type)
+            parsed = await ParserFactory.parse(content, source.title, source.mime_type)
 
             async with self.postgres_pool.acquire() as conn:
                 await self._store_sections(conn, source_id, parsed.structure)
@@ -132,24 +132,29 @@ class IngestionWorker:
 
     async def _store_sections(self, conn, source_id: str, structure: List[dict]):
         """Store document sections."""
+        section_id_map = {}  # Map path -> section_id for parent lookups
+
         for i, section in enumerate(structure):
             parent_id = None
             level = section.get('level', 0)
+            path = section.get('path', '')
 
             if level > 0 and i > 0:
                 for j in range(i - 1, -1, -1):
+                    parent_path = structure[j].get('path', '')
                     if structure[j].get('level', 0) < level:
-                        parent_id = str(uuid.uuid4())
+                        parent_id = section_id_map.get(parent_path)
                         break
 
             section_id = str(uuid.uuid4())
+            section_id_map[path] = section_id
 
             await conn.execute("""
                 INSERT INTO source_sections
                 (section_id, source_id, parent_section_id, level, title, path, metadata)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
             """, section_id, source_id, parent_id, level,
-                section.get('title'), section.get('path', ''),
+                section.get('title'), path,
                 json.dumps(section.get('metadata', {})))
 
     async def _store_chunks(self, conn, source_id: str, text: str, structure: List[dict]):

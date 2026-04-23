@@ -12,17 +12,17 @@ import asyncio
 import asyncpg
 import redis.asyncio as redis
 
-from src.memory_system.config import settings
-from src.memory_system.services.source_registry import SourceRegistry, SourceDocument, Workspace
-from src.memory_system.services.minio_service import MinIOService
-from src.memory_system.services.retrieval_engine import RetrievalEngine, RetrievalResult
-from src.memory_system.services.citation_engine import CitationEngine, GroundedEvidence
-from src.memory_system.services.prompt_composer import (
+from memory_system.config import settings
+from memory_system.services.source_registry import SourceRegistry, SourceDocument, Workspace
+from memory_system.services.minio_service import MinIOService
+from memory_system.services.retrieval_engine import RetrievalEngine, RetrievalResult
+from memory_system.services.citation_engine import CitationEngine, GroundedEvidence
+from memory_system.services.prompt_composer import (
     PromptComposer, AgentMemoryContext, SourceEvidenceContext, HybridPrompt
 )
-from src.memory_system.services.minio_notification import MinIONotificationService
-from src.memory_system.workers.ingestion_worker import IngestionWorker, IngestionTask, WorkerType
-from src.memory_system.parsers import ParserFactory
+from memory_system.services.minio_notification import MinIONotificationService
+from memory_system.workers.ingestion_worker import IngestionWorker, IngestionTask, WorkerType
+from memory_system.parsers import ParserFactory
 
 
 @dataclass
@@ -108,17 +108,21 @@ class SourceWorkspaceService:
             if this is a new document (True) or a duplicate (False)
         """
         file_hash = self.minio_service.compute_hash(content)
-        canonical_uri, _ = await self.minio_service.upload_source(
-            str(uuid.uuid4()),
-            title,
-            content,
-            mime_type or "application/octet-stream"
-        )
 
         existing = await self.source_registry.get_sources_by_hash(workspace_id, file_hash)
 
         if existing:
             return existing[0], False
+
+        # Generate source_id BEFORE upload so MinIO key matches DB
+        source_id = str(uuid.uuid4())
+
+        canonical_uri, _ = await self.minio_service.upload_source(
+            source_id,
+            title,
+            content,
+            mime_type or "application/octet-stream"
+        )
 
         source = await self.source_registry.register_source(
             workspace_id=workspace_id,
