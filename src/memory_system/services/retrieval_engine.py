@@ -300,15 +300,19 @@ class RetrievalEngine:
                     expanded.append(chunk)
                     seen_ids.add(chunk.chunk_id)
 
+                # Get embedding for this chunk's content for similarity search
+                chunk_embedding = await self._get_query_embedding(chunk.content)
+                embedding_str = '[' + ','.join(str(x) for x in chunk_embedding) + ']'
+
                 rows = await conn.fetch("""
                     SELECT
                         chunk_id, source_id, section_id, content,
-                        metadata, embedding <=> $2 as score, page_start as page
+                        metadata, embedding <=> $2::vector as score, page_start as page
                     FROM source_chunks
                     WHERE source_id = $1
                         AND section_id = $3
                         AND chunk_index BETWEEN $4 AND $5
-                """, chunk.source_id, chunk.content, chunk.section_id,
+                """, chunk.source_id, embedding_str, chunk.section_id,
                     max(0, 0), 100)
 
                 for r in rows:
