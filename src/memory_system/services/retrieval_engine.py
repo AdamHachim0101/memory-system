@@ -386,8 +386,8 @@ class RetrievalEngine:
     async def _get_query_embedding(self, query: str) -> List[float]:
         """Get embedding for query using NAGA."""
         try:
-            result = await self.naga_llm.embeddings(query)
-            return result
+            result = await self.naga_llm.embeddings([query])
+            return result[0] if result else [0.0] * 1536
         except Exception:
             return [0.0] * 1536
 
