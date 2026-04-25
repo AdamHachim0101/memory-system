@@ -169,6 +169,9 @@ class MemoryGateway:
     async def _track_topics_and_summarize(self, request: IngestTurnRequest) -> None:
         """Track topics and generate summaries periodically."""
         try:
+            if self.postgres is None or self.postgres.pool is None:
+                print("⚠️ Topic tracking skipped: postgres pool not available")
+                return
             topic_tracking = self._get_topic_tracking()
             
             # Detect and track topics
