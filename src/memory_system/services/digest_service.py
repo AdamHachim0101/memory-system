@@ -95,6 +95,7 @@ class DigestService:
         
         # Generate embedding
         summary_embedding = await self.embedding_service.get_embedding(summary_text)
+        embedding_param = summary_embedding if summary_embedding is None else str(summary_embedding)
         
         # Extract metadata
         topics = self._extract_topics_from_events(events)
@@ -121,7 +122,7 @@ class DigestService:
                 turn_start,
                 turn_end,
                 summary_text,
-                summary_embedding,
+                embedding_param,
                 "turn_based",
                 json.dumps(topics),
                 json.dumps(decisions),

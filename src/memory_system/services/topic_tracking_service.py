@@ -107,7 +107,7 @@ class TopicTrackingService:
                     user_id=str(existing["user_id"]),
                     conversation_id=str(existing["conversation_id"]),
                     topic_name=existing["topic_name"],
-                    topic_keywords=existing["topic_keywords"],
+                    topic_keywords=json.loads(existing["topic_keywords"]) if isinstance(existing["topic_keywords"], str) else existing["topic_keywords"],
                     first_mention_turn=existing["first_mention_turn"],
                     last_mention_turn=turn_id,
                     mention_count=existing["mention_count"] + 1,
@@ -116,6 +116,7 @@ class TopicTrackingService:
             else:
                 # Create new topic
                 embedding = await self.embedding_service.get_embedding(f"{topic_name}: {context_message[:200]}")
+                embedding_param = embedding if embedding is None else str(embedding)
                 
                 row = await conn.fetchrow(
                     """
@@ -130,7 +131,7 @@ class TopicTrackingService:
                     topic_name,
                     json.dumps(self.topic_keywords.get(topic_name, [])),
                     context_message[:200],
-                    embedding,
+                    embedding_param,
                     turn_id
                 )
                 
@@ -139,7 +140,7 @@ class TopicTrackingService:
                     user_id=str(row["user_id"]),
                     conversation_id=str(row["conversation_id"]),
                     topic_name=row["topic_name"],
-                    topic_keywords=row["topic_keywords"],
+                    topic_keywords=json.loads(row["topic_keywords"]) if isinstance(row["topic_keywords"], str) else row["topic_keywords"],
                     topic_summary=row["topic_summary"],
                     first_mention_turn=turn_id,
                     last_mention_turn=turn_id,
