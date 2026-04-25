@@ -22,6 +22,13 @@ class RedisService:
         if self.client:
             await self.client.close()
 
+    async def ping(self) -> bool:
+        try:
+            await self.client.ping()
+            return True
+        except Exception:
+            return False
+
     def _session_key(self, session_id: str, suffix: str) -> str:
         return f"session:{session_id}:{suffix}"
 

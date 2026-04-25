@@ -30,12 +30,27 @@ class PostgresService:
         if self.pool:
             await self.pool.close()
 
-    async def init_schema(self):
-        sql_path = "/Users/neoris/Documents/projects/own/agentic/memory-system/sql/001_initial_schema.sql"
-        with open(sql_path) as f:
-            schema_sql = f.read()
+    async def execute(self, query: str, *args):
         async with self.pool.acquire() as conn:
-            await conn.execute(schema_sql)
+            return await conn.execute(query, *args)
+
+    async def init_schema(self):
+        """Initialize database schema - run all schema files in order."""
+        schema_files = [
+            "/Users/neoris/Documents/projects/own/agentic/memory-system/sql/001_initial_schema.sql",
+            "/Users/neoris/Documents/projects/own/agentic/memory-system/sql/002_workspace_schema.sql",
+            "/Users/neoris/Documents/projects/own/agentic/memory-system/sql/003_topic_tracking_schema.sql",
+        ]
+        async with self.pool.acquire() as conn:
+            for sql_path in schema_files:
+                try:
+                    with open(sql_path) as f:
+                        schema_sql = f.read()
+                    await conn.execute(schema_sql)
+                    print(f"✅ Schema loaded: {sql_path.split('/')[-1]}")
+                except Exception as e:
+                    print(f"⚠️ Schema load warning for {sql_path.split('/')[-1]}: {e}")
+                    continue
 
     def _parse_json(self, value):
         if isinstance(value, str):

@@ -49,6 +49,8 @@ class MemoryGateway:
     def _get_topic_tracking(self) -> "TopicTrackingService":
         """Lazy initialization of topic tracking service."""
         if self._topic_tracking is None:
+            if self.postgres is None or self.postgres.pool is None:
+                raise RuntimeError("Cannot initialize TopicTrackingService: postgres not available")
             from memory_system.services.topic_tracking_service import TopicTrackingService
             self._topic_tracking = TopicTrackingService(self.postgres.pool, self.embedding)
         return self._topic_tracking
@@ -56,11 +58,16 @@ class MemoryGateway:
     def _get_digest_service(self) -> "DigestService":
         """Lazy initialization of digest service."""
         if self._digest_service is None:
+            if self.postgres is None or self.postgres.pool is None:
+                raise RuntimeError("Cannot initialize DigestService: postgres not available")
             from memory_system.services.digest_service import DigestService
             self._digest_service = DigestService(self.postgres.pool, self.embedding)
         return self._digest_service
 
     async def ingest_turn(self, request: IngestTurnRequest) -> IngestTurnResponse:
+        with open("/tmp/memory_debug.log", "a") as f:
+            f.write(f"MEMORY_GATEWAY_INGEST_ENTER|turn={request.turn_id}|msg={request.user_message[:50]}\n")
+            f.flush()
         working_snapshot_id = ""
         episodic_event_ids = []
         candidate_count = 0
@@ -168,10 +175,15 @@ class MemoryGateway:
 
     async def _track_topics_and_summarize(self, request: IngestTurnRequest) -> None:
         """Track topics and generate summaries periodically."""
+        import sys
+        sys.stderr.write(f"DEBUG _track_topics_and_summarize called for turn {request.turn_id}\n")
+        sys.stderr.flush()
         try:
             if self.postgres is None or self.postgres.pool is None:
-                print("⚠️ Topic tracking skipped: postgres pool not available")
+                sys.stderr.write("⚠️ Topic tracking skipped: postgres pool not available\n")
                 return
+            sys.stderr.write(f"DEBUG: postgres.pool is available, getting topic_tracking\n")
+            sys.stderr.flush()
             topic_tracking = self._get_topic_tracking()
             
             # Detect and track topics
@@ -223,7 +235,11 @@ class MemoryGateway:
                     pass  # Topic linking happens in topic_tracking.detect_and_track_topics
                     
         except Exception as e:
-            print(f"Topic tracking/summary error (non-fatal): {e}")
+            import traceback
+            print(f"❌ Topic tracking/summary error: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
+            # Re-raise for debugging - remove once topic tracking is stable
+            raise
 
     def _should_generate_summary(self, current_turn: int) -> bool:
         """Check if we should generate a summary now."""

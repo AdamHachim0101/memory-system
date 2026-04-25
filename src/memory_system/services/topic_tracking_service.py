@@ -49,17 +49,25 @@ class TopicTrackingService:
         """
         Detect topics in a conversation turn and update tracking.
         """
+        import sys
         text = f"{user_message} {assistant_message}".lower()
+        sys.stderr.write(f"DEBUG detect_and_track_topics: text='{text[:100]}'\n")
+        sys.stderr.flush()
         detected_topics = []
         
         for topic_name, keywords in self.topic_keywords.items():
-            if any(kw in text for kw in keywords):
+            matches = [kw for kw in keywords if kw in text]
+            if matches:
+                sys.stderr.write(f"DEBUG: Found topic '{topic_name}' with keywords {matches}\n")
+                sys.stderr.flush()
                 topic = await self._get_or_create_topic(
                     user_id, conversation_id, topic_name, user_message, turn_id
                 )
                 if topic:
                     detected_topics.append(topic)
         
+        sys.stderr.write(f"DEBUG: detect_and_track_topics returning {len(detected_topics)} topics\n")
+        sys.stderr.flush()
         return detected_topics
     
     async def _get_or_create_topic(

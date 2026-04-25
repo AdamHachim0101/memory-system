@@ -114,6 +114,11 @@ class SourceWorkspaceService:
         if existing:
             return existing[0], False
 
+        # Ensure title has correct extension based on source_type
+        ext = self._get_extension_for_type(source_type, mime_type, title)
+        if ext and not title.lower().endswith(ext):
+            title = f"{title}{ext}"
+
         # Generate source_id BEFORE upload so MinIO key matches DB
         source_id = str(uuid.uuid4())
 
@@ -151,6 +156,41 @@ class SourceWorkspaceService:
             print(f"Warning: Failed to publish upload notification: {e}")
 
         return source, True
+
+    def _get_extension_for_type(self, source_type: str, mime_type: Optional[str], title: str) -> Optional[str]:
+        """Get the correct file extension based on source_type, mime_type, or title."""
+        # Check if title already has an extension
+        for ext in ['.txt', '.md', '.html', '.json', '.pdf', '.log', '.text']:
+            if title.lower().endswith(ext):
+                return None  # Extension already present
+
+        # Map source_type to extension
+        type_to_ext = {
+            'txt': '.txt',
+            'md': '.md',
+            'markdown': '.md',
+            'html': '.html',
+            'json': '.json',
+            'pdf': '.pdf',
+            'log': '.log',
+        }
+
+        if source_type.lower() in type_to_ext:
+            return type_to_ext[source_type.lower()]
+
+        # Map mime_type to extension
+        mime_to_ext = {
+            'text/plain': '.txt',
+            'text/markdown': '.md',
+            'text/html': '.html',
+            'application/json': '.json',
+            'application/pdf': '.pdf',
+        }
+
+        if mime_type and mime_type in mime_to_ext:
+            return mime_to_ext[mime_type]
+
+        return '.txt'  # Default extension
 
     async def _process_source_async(self, source_id: str):
         """Background processing of a source."""
