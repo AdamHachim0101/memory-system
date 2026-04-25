@@ -1,6 +1,6 @@
 import json
 import hashlib
-from typing import Optional
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime, timedelta
 from memory_system.models import (
     IngestTurnRequest,
@@ -24,6 +24,10 @@ from memory_system.services.redis_service import RedisService
 from memory_system.services.neo4j_service import Neo4jService
 from memory_system.services.embedding_service import NAGAEmbeddingService
 
+if TYPE_CHECKING:
+    from memory_system.services.topic_tracking_service import TopicTrackingService
+    from memory_system.services.digest_service import DigestService
+
 
 class MemoryGateway:
     def __init__(
@@ -37,6 +41,24 @@ class MemoryGateway:
         self.redis = redis
         self.neo4j = neo4j
         self.embedding = embedding_service
+        self._topic_tracking: Optional["TopicTrackingService"] = None
+        self._digest_service: Optional["DigestService"] = None
+        self._last_summary_turn: int = -1
+        self._conversation_topics: List[str] = []
+
+    def _get_topic_tracking(self) -> "TopicTrackingService":
+        """Lazy initialization of topic tracking service."""
+        if self._topic_tracking is None:
+            from memory_system.services.topic_tracking_service import TopicTrackingService
+            self._topic_tracking = TopicTrackingService(self.postgres.pool, self.embedding)
+        return self._topic_tracking
+
+    def _get_digest_service(self) -> "DigestService":
+        """Lazy initialization of digest service."""
+        if self._digest_service is None:
+            from memory_system.services.digest_service import DigestService
+            self._digest_service = DigestService(self.postgres.pool, self.embedding)
+        return self._digest_service
 
     async def ingest_turn(self, request: IngestTurnRequest) -> IngestTurnResponse:
         working_snapshot_id = ""
@@ -132,7 +154,10 @@ class MemoryGateway:
             request.session_id, working_snapshot.model_dump(mode='json')
         )
 
-        # 6. Update graph nodes in Neo4j
+        # 6. Track topics and generate summaries
+        await self._track_topics_and_summarize(request)
+
+        # 7. Update graph nodes in Neo4j
         await self._update_graph_async(request, extraction)
 
         return IngestTurnResponse(
@@ -140,6 +165,93 @@ class MemoryGateway:
             episodic_event_ids=episodic_event_ids,
             candidate_count=candidate_count,
         )
+
+    async def _track_topics_and_summarize(self, request: IngestTurnRequest) -> None:
+        """Track topics and generate summaries periodically."""
+        try:
+            topic_tracking = self._get_topic_tracking()
+            
+            # Detect and track topics
+            topics = await topic_tracking.detect_and_track_topics(
+                user_id=request.user_id,
+                conversation_id=request.conversation_id,
+                turn_id=request.turn_id,
+                user_message=request.user_message,
+                assistant_message=request.assistant_message
+            )
+            
+            # Track topic changes
+            old_topics = self._conversation_topics
+            new_topic_names = [t.topic_name for t in topics]
+            
+            # Check for topic shift
+            topic_shift = False
+            for new_topic in new_topic_names:
+                if new_topic not in old_topics:
+                    topic_shift = True
+                    break
+            
+            self._conversation_topics = new_topic_names
+            
+            # Generate summary if needed
+            if self._should_generate_summary(request.turn_id):
+                digest_service = self._get_digest_service()
+                events = await self._get_recent_events(
+                    request.conversation_id,
+                    self._last_summary_turn + 1,
+                    request.turn_id
+                )
+                if events:
+                    summary_id = await digest_service.generate_summary(
+                        user_id=request.user_id,
+                        conversation_id=request.conversation_id,
+                        session_id=request.session_id,
+                        turn_start=self._last_summary_turn + 1,
+                        turn_end=request.turn_id,
+                        use_llm=False
+                    )
+                    if summary_id:
+                        print(f"💾 Generated conversation summary: {summary_id}")
+                self._last_summary_turn = request.turn_id
+            
+            # Link events to topics
+            for topic in topics:
+                for event_id in [request.user_message]:  # Simplified - would track actual event IDs
+                    pass  # Topic linking happens in topic_tracking.detect_and_track_topics
+                    
+        except Exception as e:
+            print(f"Topic tracking/summary error (non-fatal): {e}")
+
+    def _should_generate_summary(self, current_turn: int) -> bool:
+        """Check if we should generate a summary now."""
+        MIN_TURNS_BETWEEN_SUMMARIES = 5
+        if current_turn - self._last_summary_turn >= MIN_TURNS_BETWEEN_SUMMARIES:
+            return True
+        return False
+
+    async def _get_recent_events(
+        self,
+        conversation_id: str,
+        turn_start: int,
+        turn_end: int
+    ) -> List[dict]:
+        """Get conversation events for a turn range."""
+        async with self.postgres.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT turn_id, role, content 
+                FROM episodic_events 
+                WHERE conversation_id = $1 AND turn_id BETWEEN $2 AND $3
+                ORDER BY turn_id, created_at
+                """,
+                conversation_id,
+                turn_start,
+                turn_end
+            )
+            return [
+                {"turn_id": r["turn_id"], "role": r["role"], "content": r["content"]}
+                for r in rows
+            ]
 
     async def extract_memories(self, request: IngestTurnRequest) -> ExtractionResult:
         entities = self._extract_entities(request.user_message + " " + request.assistant_message)
@@ -383,23 +495,15 @@ class MemoryGateway:
                 seen_ids.add(r.event_id)
                 combined.append(r)
 
-        if len(combined) < 5:
-            fallback = await self.postgres.get_episodic_events(
-                request.conversation_id, limit=request.limit
-            )
-            for r in fallback:
-                if r.event_id not in seen_ids:
-                    seen_ids.add(r.event_id)
-                    combined.append(r)
-
-        if len(combined) < 3:
-            all_recent = await self.postgres.get_episodic_events(
-                request.conversation_id, limit=20
-            )
-            for r in all_recent:
-                if r.event_id not in seen_ids:
-                    seen_ids.add(r.event_id)
-                    combined.append(r)
+        # Always include recent events from conversation for context continuity
+        # This ensures name/intent queries work even if search doesn't match
+        fallback = await self.postgres.get_episodic_events(
+            request.conversation_id, limit=request.limit
+        )
+        for r in fallback:
+            if r.event_id not in seen_ids:
+                seen_ids.add(r.event_id)
+                combined.append(r)
 
         return combined[: request.limit]
 

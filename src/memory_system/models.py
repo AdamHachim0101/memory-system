@@ -140,6 +140,53 @@ class MemoryDigest(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ConversationTopic(BaseModel):
+    topic_id: Optional[str] = None
+    user_id: str
+    conversation_id: str
+    topic_name: str
+    topic_keywords: list[str] = Field(default_factory=list)
+    topic_summary: Optional[str] = None
+    topic_embedding: Optional[list[float]] = None
+    first_mention_turn: int = 0
+    last_mention_turn: int = 0
+    mention_count: int = 1
+    sentiment_score: float = 0.5
+    status: str = "active"
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ConversationSummary(BaseModel):
+    summary_id: Optional[str] = None
+    user_id: str
+    conversation_id: str
+    session_id: str
+    turn_range_start: int
+    turn_range_end: int
+    summary_text: str
+    summary_embedding: Optional[list[float]] = None
+    summary_type: str = "turn_based"
+    topics_covered: list[str] = Field(default_factory=list)
+    key_decisions: list[dict] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    entities_mentioned: list[str] = Field(default_factory=list)
+    sentiment_overall: float = 0.5
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TopicEventReference(BaseModel):
+    ref_id: Optional[str] = None
+    topic_id: str
+    event_id: str
+    event_turn: int
+    relevance_score: float = 1.0
+    context_excerpt: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class IngestTurnRequest(BaseModel):
     user_id: str
     agent_id: str
@@ -214,4 +261,7 @@ __all__ = [
     "StabilityClass",
     "MemoryStatus",
     "EventType",
+    "ConversationTopic",
+    "ConversationSummary",
+    "TopicEventReference",
 ]
